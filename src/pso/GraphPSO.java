@@ -65,6 +65,9 @@ public class GraphPSO {
 
 	public Map<String, Node> serviceMap = new HashMap<String, Node>();
 	public Set<Node> relevant;
+	public List<List<Node>> layers;
+	public List<Integer> beginningLayerIndex;
+	public List<Integer> endingLayerIndex;
 	public Map<String, Integer> serviceToIndexMap = new HashMap<String, Integer>();
 	public Map<String, TaxonomyNode> taxonomyMap = new HashMap<String, TaxonomyNode>();
 	public Set<String> taskInput;
@@ -112,10 +115,13 @@ public class GraphPSO {
 		endNode = new Node("end", mockQos, taskOutput ,new HashSet<String>());
 
 		populateTaxonomyTree();
+		layers = new ArrayList<List<Node>>();
 		relevant = getRelevantServices(serviceMap, taskInput, taskOutput);
+		beginningLayerIndex = new ArrayList<Integer>();
+		endingLayerIndex = new ArrayList<Integer>();
 		numDimensions = relevant.size();
 
-		mapServicesToIndices(relevant,serviceToIndexMap);
+		mapServicesToIndices(layers, beginningLayerIndex, endingLayerIndex, serviceToIndexMap);
 		calculateNormalisationBounds(relevant);
 
 		String finalGraph = runPSO();
@@ -148,17 +154,17 @@ public class GraphPSO {
 			for (int j = 0; j < NUM_PARTICLES; j++) {
 				System.out.println("\tPARTICLE " + j);
 				p = swarm.get(j);
-				workflow = createNewGraph(startNode.clone(), endNode.clone(), relevant, p.dimensions);
 				// 2. Evaluate fitness of particle
-				FitnessResult result = calculateFitness(workflow);
+				FitnessResult result = calculateParticleFitnessImprovedVersion(endNode, layers, p.dimensions); // XXX
+				//FitnessResult result = calculateParticleFitness(endNode, layers, p.dimensions);
 				p.fitness = result.fitness;
-				p.graphString = result.graphString;
+				p.solution = result.solution;
 				// 3. If fitness of particle is better than Pbest, update the Pbest
 				p.updatePersonalBest();
 				// 4. If fitness of Pbest is better than Gbest, update the Gbest
 				if (p.bestFitness > Particle.globalBestFitness) {
 					Particle.globalBestFitness = p.bestFitness;
-					Particle.globalGraphString = p.graphString;
+					Particle.globalSolution = p.solution;
 					Particle.globalBestDimensions = Arrays.copyOf(p.bestDimensions, p.bestDimensions.length);
 				}
 				// 5. Update the velocity of particle
@@ -173,7 +179,7 @@ public class GraphPSO {
 			i++;
 		}
 		
-		return Particle.globalGraphString;
+		return Particle.globalSolution.toString();
 	}
 	
 	/**
@@ -224,11 +230,15 @@ public class GraphPSO {
 		}
 	}
 
-	private void mapServicesToIndices(Set<Node> relevant, Map<String,Integer> serviceToIndexMap) {
-		int i = 0;
-		for (Node r : relevant) {
-			serviceToIndexMap.put(r.getName(), i++);
-		}
+	private void mapServicesToIndices(List<List<Node>> layers, List<Integer> beginningLayerIndex, List<Integer> endingLayerIndex, Map<String,Integer> serviceToIndexMap) {
+	    int i = 0;
+	    for (List<Node> layer : layers) {
+	        beginningLayerIndex.add( i );
+    		for (Node r : layer) {
+    			serviceToIndexMap.put(r.getName(), i++);
+    		}
+    		endingLayerIndex.add(i);
+	    }
 	}
 
 	//==========================================================================================================
@@ -521,34 +531,6 @@ public class GraphPSO {
     //
 	//==========================================================================================================
 
-	public FitnessResult calculateFitness(Graph graph) {
-
-        double a = 1.0;
-        double r = 1.0;
-        double t = 0.0;
-        double c = 0.0;
-
-        for (Node n : graph.nodeMap.values()) {
-        	double[] qos = n.getQos();
-        	a *= qos[AVAILABILITY];
-        	r *= qos[RELIABILITY];
-        	c += qos[COST];
-        }
-
-        // Calculate longest time
-        t = findLongestPath(graph);
-
-        a = normaliseAvailability(a);
-        r = normaliseReliability(r);
-        t = normaliseTime(t);
-        c = normaliseCost(c);
-
-        double fitness = W1 * a + W2 * r + W3 * t + W4 * c;
-        String graphString = graph.toString();
-
-        return new FitnessResult(fitness, graphString);
-	}
-
 	private double normaliseAvailability(double availability) {
 		if (MAXIMUM_AVAILABILITY - MINIMUM_AVAILABILITY == 0.0)
 			return 1.0;
@@ -576,229 +558,164 @@ public class GraphPSO {
 		else
 			return (MAXIMUM_COST - cost)/(MAXIMUM_COST - MINIMUM_COST);
 	}
-
-	/**
-	 * Uses the Bellman-Ford algorithm with negative weights to find the longest
-	 * path in an acyclic directed graph.
-	 *
-	 * @param g
-	 * @return list of edges composing longest path
-	 */
-	private double findLongestPath(Graph g) {
-		Map<String, Double> distance = new HashMap<String, Double>();
-		Map<String, Node> predecessor = new HashMap<String, Node>();
-
-		// Step 1: initialize graph
-		for (Node node : g.nodeMap.values()) {
-			if (node.getName().equals("start"))
-				distance.put(node.getName(), 0.0);
-			else
-				distance.put(node.getName(), Double.POSITIVE_INFINITY);
-		}
-
-		// Step 2: relax edges repeatedly
-		for (int i = 1; i < g.nodeMap.size(); i++) {
-			for (Edge e : g.edgeList) {
-				if ((distance.get(e.getFromNode().getName()) -
-				        e.getToNode().getQos()[TIME])
-				        < distance.get(e.getToNode().getName())) {
-					distance.put(e.getToNode().getName(), (distance.get(e.getFromNode().getName()) - e.getToNode().getQos()[TIME]));
-					predecessor.put(e.getToNode().getName(), e.getFromNode());
-				}
-			}
-		}
-
-		// Now retrieve total cost
-		Node pre = predecessor.get("end");
-		double totalTime = 0.0;
-
-		while (pre != null) {
-			totalTime += pre.getQos()[TIME];
-			pre = predecessor.get(pre.getName());
-		}
-
-		return totalTime;
-	}
-
-	public Graph createNewGraph(Node start, Node end, Set<Node> relevant, float[] weights) {
-
-		Graph newGraph = new Graph();
-
-		Set<String> currentEndInputs = new HashSet<String>();
-		Map<String,Edge> connections = new HashMap<String,Edge>();
-
-		// Connect start node
-		connectCandidateToGraphByInputs(start, connections, newGraph, currentEndInputs);
-
-		Set<Node> seenNodes = new HashSet<Node>();
-		List<ListItem> candidateList = new ArrayList<ListItem>();
-
-		populateCandidateList(serviceToIndexMap, relevant, candidateList, weights);
-		Collections.sort(candidateList);
-
-		finishConstructingGraph(currentEndInputs, end, candidateList, connections, newGraph, seenNodes, relevant);
-
-        // Keep track of nodes and edges for statistics
-        for (String nodeName : newGraph.nodeMap.keySet())
-            addToCountMap(nodeCount, nodeName);
-        for (Edge edge : newGraph.edgeList)
-            addToCountMap(edgeCount, edge.toString());
-		return newGraph;
-	}
 	
-   public void addToCountMap(Map<String,Integer> map, String item) {
-        if (map.containsKey( item )) {
-            map.put( item, map.get( item ) + 1 );
-        }
-        else {
-            map.put( item, 1 );
-        }
-    }
-
-
-	public void populateCandidateList(Map<String, Integer> serviceToIndexMap, Set<Node> relevant, List<ListItem> candidateList, float[] weights) {
-		// Go through all relevant nodes
-		for (Node n : relevant) {
-			// Find the index for that node
-			int index = serviceToIndexMap.get(n.getName());
-			// Retrieve weight associated with service using the index, and create list item
-			ListItem item = new ListItem(n.getName(), weights[index]);
-			// Add item to list
-			candidateList.add(item);
-		}
-	}
-
-	public void finishConstructingGraph(Set<String> currentEndInputs, Node end, List<ListItem> candidateList, Map<String,Edge> connections,
-	        Graph newGraph, Set<Node> seenNodes, Set<Node> relevant) {
-
-	 // While end cannot be connected to graph
-		while(!checkCandidateNodeSatisfied(connections, newGraph, end, end.getInputs(), null)){
-			connections.clear();
-
-            // Select node
-            int index;
-
-            candidateLoop:
-            for (index = 0; index < candidateList.size(); index++) {
-            	ListItem item = candidateList.get(index);
-            	Node candidate = serviceMap.get(item.serviceName).clone();
-                // For all of the candidate inputs, check that there is a service already in the graph
-                // that can satisfy it
-
-                if (!checkCandidateNodeSatisfied(connections, newGraph, candidate, candidate.getInputs(), null)) {
-                    connections.clear();
-                	continue candidateLoop;
-                }
-
-                // Connect candidate to graph, adding its reachable services to the candidate list
-                connectCandidateToGraphByInputs(candidate, connections, newGraph, currentEndInputs);
-                connections.clear();
-
-                break;
-            }
-
-            candidateList.remove(index);
-        }
-
-        connectCandidateToGraphByInputs(end, connections, newGraph, currentEndInputs);
-        connections.clear();
-        removeDanglingNodes(newGraph);
-	}
-
-	public boolean checkCandidateNodeSatisfied(Map<String, Edge> connections, Graph newGraph,
-			Node candidate, Set<String> candInputs, Set<Node> fromNodes) {
-
-		Set<String> candidateInputs = new HashSet<String>(candInputs);
-		Set<String> startIntersect = new HashSet<String>();
-
-		// Check if the start node should be considered
-		Node start = newGraph.nodeMap.get("start");
-
-		if (fromNodes == null || fromNodes.contains(start)) {
-    		for(String output : start.getOutputs()) {
-    			Set<String> inputVals = taxonomyMap.get(output).servicesWithInput.get(candidate);
-    			if (inputVals != null) {
-    				candidateInputs.removeAll(inputVals);
-    				startIntersect.addAll(inputVals);
-    			}
-    		}
-
-    		if (!startIntersect.isEmpty()) {
-    			Edge startEdge = new Edge(startIntersect);
-    			startEdge.setFromNode(start);
-    			startEdge.setToNode(candidate);
-    			connections.put(start.getName(), startEdge);
-    		}
-		}
-
-		for (String input : candidateInputs) {
-			boolean found = false;
-			for (Node s : taxonomyMap.get(input).servicesWithOutput) {
-			    if (fromNodes == null || fromNodes.contains(s)) {
-    				if (newGraph.nodeMap.containsKey(s.getName())) {
-    					Set<String> intersect = new HashSet<String>();
-    					intersect.add(input);
-
-    					Edge mapEdge = connections.get(s.getName());
-    					if (mapEdge == null) {
-    						Edge e = new Edge(intersect);
-    						e.setFromNode(newGraph.nodeMap.get(s.getName()));
-    						e.setToNode(candidate);
-    						connections.put(e.getFromNode().getName(), e);
-    					} else
-    						mapEdge.getIntersect().addAll(intersect);
-
-    					found = true;
-    					break;
-    				}
-			    }
-			}
-			// If that input cannot be satisfied, move on to another candidate
-			// node to connect
-			if (!found) {
-				// Move on to another candidate
-				return false;
-			}
-		}
-		return true;
-	}
-
-	public void connectCandidateToGraphByInputs(Node candidate, Map<String,Edge> connections, Graph graph, Set<String> currentEndInputs) {
-
-		graph.nodeMap.put(candidate.getName(), candidate);
-		graph.edgeList.addAll(connections.values());
-		candidate.getIncomingEdgeList().addAll(connections.values());
-
-		for (Edge e : connections.values()) {
-			Node fromNode = graph.nodeMap.get(e.getFromNode().getName());
-			fromNode.getOutgoingEdgeList().add(e);
-		}
-		for (String o : candidate.getOutputs()) {
-			currentEndInputs.addAll(taxonomyMap.get(o).endNodeInputs);
-		}
-	}
-
-	public void removeDanglingNodes(Graph graph) {
-	    List<Node> dangling = new ArrayList<Node>();
-	    for (Node g : graph.nodeMap.values()) {
-	        if (!g.getName().equals("end") && g.getOutgoingEdgeList().isEmpty())
-	            dangling.add( g );
+	public FitnessResult calculateParticleFitness(Node end, List<List<Node>> layers, float[] weights) {
+	    // Order layers according to weight
+	    List<List<ListItem>> sortedLayers = produceSortedLayers(layers, weights);
+	    
+	    Set<Node> solution = new HashSet<Node>();
+	    
+	    double cost = 0.0;
+	    double availability = 1.0;
+	    double reliability = 1.0;
+	    
+	    List<InputTimePair> nextInputsToSatisfy = new ArrayList<InputTimePair>();
+	    double t = end.getQos()[TIME];
+	    for (String input : end.getInputs()){
+	        nextInputsToSatisfy.add( new InputTimePair(input, t, 0) );
 	    }
-
-	    for (Node d: dangling) {
-	        removeDangling(d, graph);
-	    }
-	}
-
-	private void removeDangling(Node n, Graph graph) {
-	    if (n.getOutgoingEdgeList().isEmpty()) {
-	        graph.nodeMap.remove( n.getName() );
-	        for (Edge e : n.getIncomingEdgeList()) {
-	            e.getFromNode().getOutgoingEdgeList().remove( e );
-	            graph.edgeList.remove( e );
-	            removeDangling(e.getFromNode(), graph);
+	    
+	    for (int i = sortedLayers.size()-1; i >= 0; i--) {
+	        List<ListItem> layer = sortedLayers.get( i );
+	        List<InputTimePair> inputsToSatisfy = new ArrayList<InputTimePair>(nextInputsToSatisfy);
+	        nextInputsToSatisfy.clear();
+	        for (ListItem item : layer) {
+	            Node n = serviceMap.get(item.serviceName);
+	            List<InputTimePair> satisfied = getInputsSatisfied(inputsToSatisfy, n);
+	            if (!satisfied.isEmpty()) {
+	                solution.add(n);
+	                double[] qos = n.getQos();
+	                cost += qos[COST];
+	                availability *= qos[AVAILABILITY];
+	                reliability *= qos[RELIABILITY];
+	                t = qos[TIME];
+	                inputsToSatisfy.removeAll(satisfied);
+	                
+	                double highestT = findHighestTime(satisfied);
+	                
+	                for(String input : n.getInputs()) {
+	                    nextInputsToSatisfy.add( new InputTimePair(input, highestT + t, 0) );
+	                }
+	                
+	                if (inputsToSatisfy.isEmpty()) {
+	                    break;
+	                }
+	            }
 	        }
 	    }
+	    
+	    // Find the highest overall time
+	    double time = findHighestTime(nextInputsToSatisfy);
+	    
+	    double fitness = calculateFitness(cost, time, availability, reliability);
+	    
+	    return new FitnessResult(fitness, solution);
+	}
+	
+	   public FitnessResult calculateParticleFitnessImprovedVersion(Node end, List<List<Node>> layers, float[] weights) {
+	        // Order layers according to weight
+	        List<List<ListItem>> sortedLayers = produceSortedLayers(layers, weights);
+	        
+	        Set<Node> solution = new HashSet<Node>();
+	        
+	        double cost = 0.0;
+	        double availability = 1.0;
+	        double reliability = 1.0;
+	        
+	        // Populate inputs to satisfy with end node's inputs
+	        List<InputTimePair> nextInputsToSatisfy = new ArrayList<InputTimePair>();
+	        double t = end.getQos()[TIME];
+	        for (String input : end.getInputs()){
+	            nextInputsToSatisfy.add( new InputTimePair(input, t, sortedLayers.size()) );
+	        }
+	        
+	        // Fulfil inputs layer by layer
+	        for (int i = sortedLayers.size(); i > 0; i--) {
+	            // Filter out the inputs from this layer that need to fulfilled
+	            List<InputTimePair> inputsToSatisfy = new ArrayList<InputTimePair>();
+	            for (InputTimePair p : nextInputsToSatisfy) {
+	               if (p.layer == i)
+	                   inputsToSatisfy.add( p );
+	            }
+	            nextInputsToSatisfy.removeAll( inputsToSatisfy );
+	            
+	            // Create manager to merge lists for us
+	            SortedLayerManager manager = new SortedLayerManager(sortedLayers, i);
+	            
+	            while (!inputsToSatisfy.isEmpty()){
+	                NodeLayerPair nextNode = manager.getNextNode();
+	                Node n = serviceMap.get( nextNode.nodeName );
+	                int nLayer = nextNode.layerNum;
+	                
+	                List<InputTimePair> satisfied = getInputsSatisfied(inputsToSatisfy, n);
+	                if (!satisfied.isEmpty()) {
+                        double[] qos = n.getQos();
+                        if (!solution.contains( n )) {
+                            solution.add(n);
+                            cost += qos[COST];
+                            availability *= qos[AVAILABILITY];
+                            reliability *= qos[RELIABILITY];
+                        }
+                        t = qos[TIME];
+                        inputsToSatisfy.removeAll(satisfied);
+                        
+                        double highestT = findHighestTime(satisfied);
+                        
+                        for(String input : n.getInputs()) {
+                            nextInputsToSatisfy.add( new InputTimePair(input, highestT + t, nLayer) );
+                        }
+                    }
+	            }
+	        }
+	        
+	        // Find the highest overall time
+	        double time = findHighestTime(nextInputsToSatisfy);
+	        
+	        double fitness = calculateFitness(cost, time, availability, reliability);
+	        
+	        return new FitnessResult(fitness, solution);
+	    }
+	
+	public double findHighestTime(List<InputTimePair> satisfied) {
+	    double max = Double.MIN_VALUE;
+	    
+	    for (InputTimePair p : satisfied) {
+	        if (p.time > max)
+	            max = p.time;
+	    }
+	    
+	    return max;
+	}
+	
+	public double calculateFitness(double c, double t, double a, double r) {
+        a = normaliseAvailability(a);
+        r = normaliseReliability(r);
+        t = normaliseTime(t);
+        c = normaliseCost(c);
+
+        return (W1 * a + W2 * r + W3 * t + W4 * c);
+	}
+	
+	public List<List<ListItem>> produceSortedLayers(List<List<Node>> layers, float[] weights) {
+	    List<List<ListItem>> sortedLayers = new ArrayList<List<ListItem>>();
+	    for (List<Node> layer : layers) {
+	        List<ListItem> sortedLayer = new ArrayList<ListItem>();	        
+	        for (Node n : layer) {
+	            sortedLayer.add( new ListItem(n.getName(), weights[serviceToIndexMap.get(n.getName())]) );
+	        }
+	        Collections.sort( sortedLayer );
+	        sortedLayers.add( sortedLayer );
+	    }
+	    return sortedLayers;
+	}
+	
+	public List<InputTimePair> getInputsSatisfied(List<InputTimePair> inputsToSatisfy, Node n) {
+	    List<InputTimePair> satisfied = new ArrayList<InputTimePair>();
+	    for(InputTimePair p : inputsToSatisfy) {
+            if (taxonomyMap.get(p.input).servicesWithOutput.contains( n ))
+                satisfied.add( p );
+        }
+	    return satisfied;
 	}
 
 	//==========================================================================================================
@@ -823,6 +740,7 @@ public class GraphPSO {
 		Set<Node> sFound = discoverService(services, cSearch);
 		while (!sFound.isEmpty()) {
 			sSet.addAll(sFound);
+			layers.add(new ArrayList<Node>(sFound));
 			services.removeAll(sFound);
 			for (Node s: sFound) {
 				cSearch.addAll(s.getOutputs());

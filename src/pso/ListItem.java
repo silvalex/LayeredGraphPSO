@@ -1,10 +1,10 @@
 package pso;
 
 public class ListItem implements Comparable<ListItem> {
-	public double score;
+	public float score;
 	public String serviceName;
 
-	public ListItem(String serviceName, double score) {
+	public ListItem(String serviceName, float score) {
 		this.serviceName = serviceName;
 		this.score = score;
 	}

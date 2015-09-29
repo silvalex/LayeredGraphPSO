@@ -1,11 +1,13 @@
 package pso;
 
+import java.util.Set;
+
 public class FitnessResult {
 	public double fitness;
-	public String graphString;
+	public Set<Node> solution;
 
-	public FitnessResult(double fitness, String graphString) {
+	public FitnessResult(double fitness, Set<Node> solution) {
 		this.fitness = fitness;
-		this.graphString = graphString;
+		this.solution = solution;
 	}
 }
