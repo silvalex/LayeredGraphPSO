@@ -2,9 +2,7 @@ package pso;
 
 
 import java.util.Arrays;
-import java.util.List;
 import java.util.Random;
-import java.util.Set;
 
 /**
  * Represents a single particle within the swarm, including
@@ -17,7 +15,6 @@ public class Particle {
 	public float[] dimensions = new float[GraphPSO.numDimensions];
 	public float[] velocity = new float[GraphPSO.numDimensions];
 	public double fitness = 0.0; // The higher, the fitter
-	public List<Node> solution;
 
 	// personal best values
 	public double bestFitness = Double.NEGATIVE_INFINITY;
@@ -26,7 +23,6 @@ public class Particle {
 	// global best values
 	public static double globalBestFitness = Double.NEGATIVE_INFINITY;
 	public static float[] globalBestDimensions = new float[GraphPSO.numDimensions];
-	public static List<Node> globalSolution;
 
 	/**
 	 * Creates a particle with null dimensions.
@@ -48,7 +44,6 @@ public class Particle {
 		// global best values
 		globalBestFitness = Double.NEGATIVE_INFINITY;
 		globalBestDimensions = new float[GraphPSO.numDimensions];
-		globalSolution = null;
 	}
 
 	/**
@@ -62,13 +57,13 @@ public class Particle {
 			bestDimensions = Arrays.copyOf(dimensions, dimensions.length);
 		}
 	}
-	@Override
-	/**
-	 * {@inheritDoc}
-	 */
-	public String toString() {
-		return solution.toString();
-	}
+//	@Override
+//	/**
+//	 * {@inheritDoc}
+//	 */
+//	public String toString() {
+//		return solution.toString();
+//	}
 
 
 }
