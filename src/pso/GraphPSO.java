@@ -12,6 +12,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
@@ -126,8 +127,8 @@ public class GraphPSO {
 
 		float[] finalDimensions = runPSO();
 
-		//Graph finalGraph = createNewGraph( startNode.clone(), endNode.clone(), finalDimensions ); // XXX
-		//writeLogs(finalGraph.toString());
+		Graph finalGraph = createNewGraph( startNode.clone(), endNode.clone(), layers, finalDimensions);
+		writeLogs(finalGraph.toString());
 	}
 
 	//==========================================================================================================
@@ -567,31 +568,31 @@ public class GraphPSO {
 	        double reliability = 1.0;
 
 	        // Populate inputs to satisfy with end node's inputs
-	        List<InputTimePair> nextInputsToSatisfy = new ArrayList<InputTimePair>();
+	        List<InputTimeLayerTrio> nextInputsToSatisfy = new ArrayList<InputTimeLayerTrio>();
 	        double t = end.getQos()[TIME];
 	        for (String input : end.getInputs()){
-	            nextInputsToSatisfy.add( new InputTimePair(input, t, sortedLayers.size()) );
+	            nextInputsToSatisfy.add( new InputTimeLayerTrio(input, t, sortedLayers.size()) );
 	        }
 
 	        // Fulfil inputs layer by layer
 	        for (int i = sortedLayers.size(); i > 0; i--) {
 	            // Filter out the inputs from this layer that need to fulfilled
-	            List<InputTimePair> inputsToSatisfy = new ArrayList<InputTimePair>();
-	            for (InputTimePair p : nextInputsToSatisfy) {
+	            List<InputTimeLayerTrio> inputsToSatisfy = new ArrayList<InputTimeLayerTrio>();
+	            for (InputTimeLayerTrio p : nextInputsToSatisfy) {
 	               if (p.layer == i)
 	                   inputsToSatisfy.add( p );
 	            }
 	            nextInputsToSatisfy.removeAll( inputsToSatisfy );
 
 	            // Create manager to merge lists for us
-	            SortedLayerManager manager = new SortedLayerManager(sortedLayers, i);
+	            SortedLayerManager manager = new SortedLayerManager(sortedLayers, i, random);
 
 	            while (!inputsToSatisfy.isEmpty()){
 	                NodeLayerPair nextNode = manager.getNextNode();
 	                Node n = serviceMap.get( nextNode.nodeName );
 	                int nLayer = nextNode.layerNum;
 
-	                List<InputTimePair> satisfied = getInputsSatisfied(inputsToSatisfy, n);
+	                List<InputTimeLayerTrio> satisfied = getInputsSatisfied(inputsToSatisfy, n);
 	                if (!satisfied.isEmpty()) {
                         double[] qos = n.getQos();
                         if (!solution.contains( n )) {
@@ -608,7 +609,7 @@ public class GraphPSO {
                         double highestT = findHighestTime(satisfied);
 
                         for(String input : n.getInputs()) {
-                            nextInputsToSatisfy.add( new InputTimePair(input, highestT + t, nLayer) );
+                            nextInputsToSatisfy.add( new InputTimeLayerTrio(input, highestT + t, nLayer) );
                         }
                     }
 	            }
@@ -622,10 +623,10 @@ public class GraphPSO {
 	        return fitness;
 	    }
 
-	public double findHighestTime(List<InputTimePair> satisfied) {
+	public double findHighestTime(List<InputTimeLayerTrio> satisfied) {
 	    double max = Double.MIN_VALUE;
 
-	    for (InputTimePair p : satisfied) {
+	    for (InputTimeLayerTrio p : satisfied) {
 	        if (p.time > max)
 	            max = p.time;
 	    }
@@ -655,9 +656,18 @@ public class GraphPSO {
 	    return sortedLayers;
 	}
 
-	public List<InputTimePair> getInputsSatisfied(List<InputTimePair> inputsToSatisfy, Node n) {
-	    List<InputTimePair> satisfied = new ArrayList<InputTimePair>();
-	    for(InputTimePair p : inputsToSatisfy) {
+	public List<InputTimeLayerTrio> getInputsSatisfied(List<InputTimeLayerTrio> inputsToSatisfy, Node n) {
+	    List<InputTimeLayerTrio> satisfied = new ArrayList<InputTimeLayerTrio>();
+	    for(InputTimeLayerTrio p : inputsToSatisfy) {
+            if (taxonomyMap.get(p.input).servicesWithOutput.contains( n ))
+                satisfied.add( p );
+        }
+	    return satisfied;
+	}
+
+	public List<InputNodeLayerTrio> getInputsSatisfiedGraphBuilding(List<InputNodeLayerTrio> inputsToSatisfy, Node n) {
+	    List<InputNodeLayerTrio> satisfied = new ArrayList<InputNodeLayerTrio>();
+	    for(InputNodeLayerTrio p : inputsToSatisfy) {
             if (taxonomyMap.get(p.input).servicesWithOutput.contains( n ))
                 satisfied.add( p );
         }
@@ -671,6 +681,91 @@ public class GraphPSO {
 	    else {
 	        map.put( item, 1 );
 	    }
+	}
+
+	public Graph createNewGraph(Node start, Node end, List<List<Node>> layers, float[] weights) {
+        // Order layers according to weight
+        List<List<ListItem>> sortedLayers = produceSortedLayers(layers, weights);
+
+        Graph graph = new Graph();
+        graph.nodeMap.put(end.getName(), end);
+
+        // Populate inputs to satisfy with end node's inputs
+        List<InputNodeLayerTrio> nextInputsToSatisfy = new ArrayList<InputNodeLayerTrio>();
+
+        for (String input : end.getInputs()){
+            nextInputsToSatisfy.add( new InputNodeLayerTrio(input, end.getName(), sortedLayers.size()) );
+        }
+
+        // Fulfil inputs layer by layer
+        for (int i = sortedLayers.size(); i > 0; i--) {
+            // Filter out the inputs from this layer that need to fulfilled
+            List<InputNodeLayerTrio> inputsToSatisfy = new ArrayList<InputNodeLayerTrio>();
+            for (InputNodeLayerTrio p : nextInputsToSatisfy) {
+               if (p.layer == i)
+                   inputsToSatisfy.add( p );
+            }
+            nextInputsToSatisfy.removeAll( inputsToSatisfy );
+
+            // Create manager to merge lists for us
+            SortedLayerManager manager = new SortedLayerManager(sortedLayers, i, random);
+
+            while (!inputsToSatisfy.isEmpty()){
+                NodeLayerPair nextNode = manager.getNextNode();
+                Node n = serviceMap.get( nextNode.nodeName ).clone();
+                int nLayer = nextNode.layerNum;
+
+                List<InputNodeLayerTrio> satisfied = getInputsSatisfiedGraphBuilding(inputsToSatisfy, n);
+
+                if (!satisfied.isEmpty()) {
+                    if (!graph.nodeMap.containsKey( n.getName() )) {
+                        graph.nodeMap.put(n.getName(), n);
+                    }
+
+                    // Add edges
+                    createEdges(n, satisfied, graph);
+                    inputsToSatisfy.removeAll(satisfied);
+
+
+                    for(String input : n.getInputs()) {
+                        nextInputsToSatisfy.add( new InputNodeLayerTrio(input, n.getName(), nLayer) );
+                    }
+                }
+            }
+        }
+
+        // Connect start node
+        graph.nodeMap.put(start.getName(), start);
+        createEdges(start, nextInputsToSatisfy, graph);
+
+        return graph;
+    }
+
+	public void createEdges(Node origin, List<InputNodeLayerTrio> destinations, Graph graph) {
+		// Order inputs by destination
+		Map<String, Set<String>> intersectMap = new HashMap<String, Set<String>>();
+		for(InputNodeLayerTrio t : destinations) {
+			addToIntersectMap(t.service, t.input, intersectMap);
+		}
+
+		for (Entry<String,Set<String>> entry : intersectMap.entrySet()) {
+			Edge e = new Edge(entry.getValue());
+			origin.getOutgoingEdgeList().add(e);
+			Node destination = graph.nodeMap.get(entry.getKey());
+			destination.getIncomingEdgeList().add(e);
+			e.setFromNode(origin);
+        	e.setToNode(destination);
+        	graph.edgeList.add(e);
+		}
+	}
+
+	private void addToIntersectMap(String destination, String input, Map<String, Set<String>> intersectMap) {
+		Set<String> intersect = intersectMap.get(destination);
+		if (intersect == null) {
+			intersect = new HashSet<String>();
+			intersectMap.put(destination, intersect);
+		}
+		intersect.add(input);
 	}
 
 	//==========================================================================================================
