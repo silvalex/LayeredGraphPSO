@@ -1,12 +1,12 @@
 package pso;
 
-import java.util.Set;
+import java.util.List;
 
 public class FitnessResult {
 	public double fitness;
-	public Set<Node> solution;
+	public List<Node> solution;
 
-	public FitnessResult(double fitness, Set<Node> solution) {
+	public FitnessResult(double fitness, List<Node> solution) {
 		this.fitness = fitness;
 		this.solution = solution;
 	}
