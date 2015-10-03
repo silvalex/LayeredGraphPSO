@@ -122,7 +122,7 @@ public class GraphPSO {
 		numDimensions = relevant.size();
 
 		mapServicesToIndices(layers, beginningLayerIndex, endingLayerIndex, serviceToIndexMap);
-		calculateNormalisationBounds(relevant);
+		calculateNormalisationBounds(new HashSet<Node>(serviceMap.values()));
 
 		Set<Node> finalSolution = runPSO();
 		Graph finalGraph = createNewGraph( startNode.clone(), endNode.clone(), finalSolution );
