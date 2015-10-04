@@ -1,6 +1,5 @@
 package pso;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
@@ -39,6 +38,10 @@ public class SortedLayerManager {
                 }
             }
         }
+        
+        if(nodeName == null)
+            return null;
+        
         // Update index
         indexList[layerNum]++;
 
