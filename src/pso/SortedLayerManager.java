@@ -8,6 +8,8 @@ import java.util.Random;
  * @author Alex
  */
 public class SortedLayerManager {
+	public static int counter = 0;
+
     List<List<ListItem>> sortedLayers;
     int[] indexList;
     int max;
@@ -38,13 +40,13 @@ public class SortedLayerManager {
                 }
             }
         }
-        
+
         if(nodeName == null)
             return null;
-        
+
         // Update index
         indexList[layerNum]++;
-
+        counter++; // XXX for testing
         return new NodeLayerPair(nodeName, layerNum);
     }
 

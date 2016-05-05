@@ -589,7 +589,7 @@ public class GraphPSO {
 
 	            while (!inputsToSatisfy.isEmpty()){
 	                NodeLayerPair nextNode = manager.getNextNode();
-	                
+
 	                // If all nodes have been attempted, inputs must be fulfilled with start node
 	                if (nextNode == null) {
 	                    nextInputsToSatisfy.addAll(inputsToSatisfy);
@@ -598,7 +598,7 @@ public class GraphPSO {
 	                else {
     	                Node n = serviceMap.get( nextNode.nodeName );
     	                int nLayer = nextNode.layerNum;
-    
+
     	                List<InputTimeLayerTrio> satisfied = getInputsSatisfied(inputsToSatisfy, n);
     	                if (!satisfied.isEmpty()) {
                             double[] qos = n.getQos();
@@ -612,9 +612,9 @@ public class GraphPSO {
                             }
                             t = qos[TIME];
                             inputsToSatisfy.removeAll(satisfied);
-    
+
                             double highestT = findHighestTime(satisfied);
-    
+
                             for(String input : n.getInputs()) {
                                 nextInputsToSatisfy.add( new InputTimeLayerTrio(input, highestT + t, nLayer) );
                             }
@@ -720,7 +720,7 @@ public class GraphPSO {
 
             while (!inputsToSatisfy.isEmpty()){
                 NodeLayerPair nextNode = manager.getNextNode();
-                
+
                 if (nextNode == null) {
                     nextInputsToSatisfy.addAll( inputsToSatisfy );
                     inputsToSatisfy.clear();
@@ -728,19 +728,19 @@ public class GraphPSO {
                 else {
                     Node n = serviceMap.get( nextNode.nodeName ).clone();
                     int nLayer = nextNode.layerNum;
-    
+
                     List<InputNodeLayerTrio> satisfied = getInputsSatisfiedGraphBuilding(inputsToSatisfy, n);
-    
+
                     if (!satisfied.isEmpty()) {
                         if (!graph.nodeMap.containsKey( n.getName() )) {
                             graph.nodeMap.put(n.getName(), n);
                         }
-    
+
                         // Add edges
                         createEdges(n, satisfied, graph);
                         inputsToSatisfy.removeAll(satisfied);
-    
-    
+
+
                         for(String input : n.getInputs()) {
                             nextInputsToSatisfy.add( new InputNodeLayerTrio(input, n.getName(), nLayer) );
                         }
