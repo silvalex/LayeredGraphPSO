@@ -51,8 +51,8 @@ public class GraphPSO {
 
 	public static double MINIMUM_COST = Double.MAX_VALUE;
 	public static double MINIMUM_TIME = Double.MAX_VALUE;
-	public static final double MINIMUM_RELIABILITY = 0;
-	public static final double MINIMUM_AVAILABILITY = 0;
+	public static double MINIMUM_RELIABILITY = 0;
+	public static double MINIMUM_AVAILABILITY = 0;
 	public static double MAXIMUM_COST = Double.MIN_VALUE;
 	public static double MAXIMUM_TIME = Double.MIN_VALUE;
 	public static double MAXIMUM_RELIABILITY = Double.MIN_VALUE;
@@ -123,6 +123,7 @@ public class GraphPSO {
 		numDimensions = relevant.size();
 
 		mapServicesToIndices(layers, beginningLayerIndex, endingLayerIndex, serviceToIndexMap);
+		//calculateNormalisationBounds(relevant); // XXX
 		calculateNormalisationBounds(new HashSet<Node>(serviceMap.values()));
 
 		float[] finalDimensions = runPSO();
