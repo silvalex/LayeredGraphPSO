@@ -36,9 +36,13 @@ public class GraphPSO {
 	public static final float C1 = 1.49618f;
 	public static final float C2 = 1.49618f;
 	public static final float W = 0.7298f;
+	public static final boolean dynamicNormalisation = true;
 	public static int numDimensions;
+	public static ArrayList<Long> initTime = new ArrayList<Long>();
 	public static ArrayList<Long> time = new ArrayList<Long>();
-	public static ArrayList<Double> fitness = new ArrayList<Double>();
+	public static ArrayList<Double> meanFitness = new ArrayList<Double>();
+	public static ArrayList<Double> bestFitnessThisGen = new ArrayList<Double>();
+	public static ArrayList<Double> bestFitnessSoFar = new ArrayList<Double>();
 	public static String logName;
 	public static String histogramLogName;
 	public static Long initialisationStartTime;
@@ -57,6 +61,19 @@ public class GraphPSO {
 	public static double MAXIMUM_TIME = Double.MIN_VALUE;
 	public static double MAXIMUM_RELIABILITY = Double.MIN_VALUE;
 	public static double MAXIMUM_AVAILABILITY = Double.MIN_VALUE;
+
+	public static List<Double> meanAvailPerGen = new ArrayList<Double>();
+	public static List<Double> meanReliaPerGen = new ArrayList<Double>();
+	public static List<Double> meanTimePerGen = new ArrayList<Double>();
+	public static List<Double> meanCostPerGen = new ArrayList<Double>();
+	public static List<Double> bestAvailThisGen = new ArrayList<Double>();
+	public static List<Double> bestReliaThisGen = new ArrayList<Double>();
+	public static List<Double> bestTimeThisGen = new ArrayList<Double>();
+	public static List<Double> bestCostThisGen = new ArrayList<Double>();
+	public static List<Double> bestAvailSoFar = new ArrayList<Double>();
+	public static List<Double> bestReliaSoFar = new ArrayList<Double>();
+	public static List<Double> bestTimeSoFar = new ArrayList<Double>();
+	public static List<Double> bestCostSoFar = new ArrayList<Double>();
 
 	// Constants with of order of QoS attributes
 	public static final int TIME = 0;
@@ -123,8 +140,10 @@ public class GraphPSO {
 		numDimensions = relevant.size();
 
 		mapServicesToIndices(layers, beginningLayerIndex, endingLayerIndex, serviceToIndexMap);
-		//calculateNormalisationBounds(relevant); // XXX
-		calculateNormalisationBounds(new HashSet<Node>(serviceMap.values()));
+		if (!dynamicNormalisation) {
+			//calculateNormalisationBounds(relevant); // XXX
+			calculateNormalisationBounds(new HashSet<Node>(serviceMap.values()));
+		}
 
 		float[] finalDimensions = runPSO();
 
@@ -134,8 +153,8 @@ public class GraphPSO {
 
 	//==========================================================================================================
 	//
-    //                                              PSO METHODS
-    //
+	//                                              PSO METHODS
+	//
 	//==========================================================================================================
 
 	/**
@@ -153,32 +172,170 @@ public class GraphPSO {
 			long startTime = System.currentTimeMillis();
 			System.out.println("ITERATION " + i);
 
+			double minAvailability = 2.0;
+			double maxAvailability = -1.0;
+			double minReliability = 2.0;
+			double maxReliability = -1.0;
+			double minTime = Double.MAX_VALUE;
+			double maxTime = -1.0;
+			double minCost = Double.MAX_VALUE;
+			double maxCost = -1.0;
+
+			// Keep track of means
+			double meanAvailability = 0.0;
+			double meanReliability = 0.0;
+			double meanTime = 0.0;
+			double meanCost = 0.0;
+			double meanFit = 0.0;
+			double bestFitThisGen = 0.0;
+			double bestAThisGen = 0.0;
+			double bestRThisGen = 0.0;
+			double bestTThisGen = Double.MAX_VALUE;
+			double bestCThisGen = Double.MAX_VALUE;
+
 			// Go through all particles
 			for (int j = 0; j < NUM_PARTICLES; j++) {
 				System.out.println("\tPARTICLE " + j);
 				p = swarm.get(j);
+
 				// 2. Evaluate fitness of particle
-				p.fitness = calculateParticleFitness(endNode, layers, p.dimensions);
-				// 3. If fitness of particle is better than Pbest, update the Pbest
-				p.updatePersonalBest();
-				// 4. If fitness of Pbest is better than Gbest, update the Gbest
-				if (p.bestFitness > Particle.globalBestFitness) {
-					Particle.globalBestFitness = p.bestFitness;
-					Particle.globalBestDimensions = Arrays.copyOf(p.bestDimensions, p.bestDimensions.length);
+				calculateOverallQoS(endNode, layers, p);
+
+				meanAvailability += p.availability;
+				meanReliability += p.reliability;
+				meanTime += p.time;
+				meanCost += p.cost;
+
+				if (dynamicNormalisation) {
+					if (p.availability < minAvailability)
+						minAvailability = p.availability;
+					if (p.availability > maxAvailability)
+						maxAvailability = p.availability;
+					if (p.reliability < minReliability)
+						minReliability = p.reliability;
+					if (p.reliability > maxReliability)
+						maxReliability = p.reliability;
+					if (p.time < minTime)
+						minTime = p.time;
+					if (p.time > maxTime)
+						maxTime = p.time;
+					if (p.cost < minCost)
+						minCost = p.cost;
+					if (p.cost > maxCost)
+						maxCost = p.cost;
 				}
-				// 5. Update the velocity of particle
-				updateVelocity(p);
-				// 6. Update the position of particle
-				updatePosition(p);
+
+				if (!dynamicNormalisation) {
+					double fit = calculateFitness(p);
+					meanFit += fit;
+					if (fit > bestFitThisGen) {
+						bestFitThisGen = fit;
+						bestAThisGen = p.availability;
+						bestRThisGen = p.reliability;
+						bestTThisGen = p.time;
+						bestCThisGen = p.cost;
+					}
+					// 3. If fitness of particle is better than Pbest, update the Pbest
+					p.updatePersonalBest();
+					// 4. If fitness of Pbest is better than Gbest, update the Gbest
+					if (p.bestFitness > Particle.globalBestFitness) {
+						Particle.globalBestFitness = p.bestFitness;
+						Particle.globalBestDimensions = Arrays.copyOf(p.bestDimensions, p.bestDimensions.length);
+						Particle.globalBestAvailability = p.availability;
+						Particle.globalBestReliability = p.reliability;
+						Particle.globalBestTime = p.time;
+						Particle.globalBestCost = p.cost;
+					}
+					// 5. Update the velocity of particle
+					updateVelocity(p);
+					// 6. Update the position of particle
+					updatePosition(p);
+				}
 			}
 
-			fitness.add(Particle.globalBestFitness);
-			time.add((System.currentTimeMillis() - startTime) + initialization);
+			// Mean QoS
+			meanAvailPerGen.add(meanAvailability / NUM_PARTICLES);
+			meanReliaPerGen.add(meanReliability / NUM_PARTICLES);
+			meanTimePerGen.add(meanTime / NUM_PARTICLES);
+			meanCostPerGen.add(meanCost / NUM_PARTICLES);
+
+			// If normalisation is dynamic, go through particles again to finish fitness calculations
+			if (dynamicNormalisation) {
+				// Update the normalisation bounds with the newly found values
+				MINIMUM_AVAILABILITY = minAvailability;
+				MAXIMUM_AVAILABILITY = maxAvailability;
+				MINIMUM_RELIABILITY = minReliability;
+				MAXIMUM_RELIABILITY = maxReliability;
+				MINIMUM_COST = minCost;
+				MAXIMUM_COST = maxCost;
+				MINIMUM_TIME = minTime;
+				MAXIMUM_TIME = maxTime;
+
+				Particle p2;
+				// Finish calculating the fitness of each candidate
+				for (int j = 0; j < NUM_PARTICLES; j++) {
+					p2 = swarm.get(j);
+					double fit = calculateFitness(p2);
+					meanFit += fit;
+					if (fit > bestFitThisGen) {
+						bestFitThisGen = fit;
+						bestAThisGen = p2.availability;
+						bestRThisGen = p2.reliability;
+						bestTThisGen = p2.time;
+						bestCThisGen = p2.cost;
+					}
+					// 3. If fitness of particle is better than Pbest, update the Pbest
+					p2.updatePersonalBest();
+					// 4. If fitness of Pbest is better than Gbest, update the Gbest
+					if (p2.bestFitness > Particle.globalBestFitness) {
+						Particle.globalBestFitness = p2.bestFitness;
+						Particle.globalBestDimensions = Arrays.copyOf(p2.bestDimensions, p2.bestDimensions.length);
+						Particle.globalBestAvailability = p2.availability;
+						Particle.globalBestReliability = p2.reliability;
+						Particle.globalBestTime = p2.time;
+						Particle.globalBestCost = p2.cost;
+					}
+					// 5. Update the velocity of particle
+					updateVelocity(p2);
+					// 6. Update the position of particle
+					updatePosition(p2);
+				}
+			}
+
+			meanFitness.add(meanFit/NUM_PARTICLES);
+			bestFitnessThisGen.add(bestFitThisGen);
+			bestAvailThisGen.add(bestAThisGen);
+			bestReliaThisGen.add(bestRThisGen);
+			bestTimeThisGen.add(bestTThisGen);
+			bestCostThisGen.add(bestCThisGen);
+			bestFitnessSoFar.add(Particle.globalBestFitness);
+			bestAvailSoFar.add(Particle.globalBestAvailability);
+			bestReliaSoFar.add(Particle.globalBestReliability);
+			bestTimeSoFar.add(Particle.globalBestTime);
+			bestCostSoFar.add(Particle.globalBestCost);
+
+			initTime.add(initialization);
+			time.add(System.currentTimeMillis() - startTime);
 			initialization = 0;
 			i++;
 		}
 
 		return Particle.globalBestDimensions;
+	}
+	
+	public double calculateFitness(Particle p) {
+		double a = p.availability;
+        double r = p.reliability;
+        double t = p.time;
+        double c = p.cost;
+
+        a = normaliseAvailability(a);
+        r = normaliseReliability(r);
+        t = normaliseTime(t);
+        c = normaliseCost(c);
+
+        p.fitness = W1 * a + W2 * r + W3 * t + W4 * c;
+        return p.fitness;
 	}
 
 	/**
@@ -230,20 +387,20 @@ public class GraphPSO {
 	}
 
 	private void mapServicesToIndices(List<List<Node>> layers, List<Integer> beginningLayerIndex, List<Integer> endingLayerIndex, Map<String,Integer> serviceToIndexMap) {
-	    int i = 0;
-	    for (List<Node> layer : layers) {
-	        beginningLayerIndex.add( i );
-    		for (Node r : layer) {
-    			serviceToIndexMap.put(r.getName(), i++);
-    		}
-    		endingLayerIndex.add(i);
-	    }
+		int i = 0;
+		for (List<Node> layer : layers) {
+			beginningLayerIndex.add( i );
+			for (Node r : layer) {
+				serviceToIndexMap.put(r.getName(), i++);
+			}
+			endingLayerIndex.add(i);
+		}
 	}
 
 	//==========================================================================================================
 	//
-    //                                              PARSING METHODS
-    //
+	//                                              PARSING METHODS
+	//
 	//==========================================================================================================
 
 	/**
@@ -253,28 +410,28 @@ public class GraphPSO {
 	 * @param fileName
 	 */
 	private void parseWSCServiceFile(String fileName) {
-        Set<String> inputs = new HashSet<String>();
-        Set<String> outputs = new HashSet<String>();
-        double[] qos = new double[4];
+		Set<String> inputs = new HashSet<String>();
+		Set<String> outputs = new HashSet<String>();
+		double[] qos = new double[4];
 
-        try {
-        	File fXmlFile = new File(fileName);
-        	DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
-        	DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
-        	Document doc = dBuilder.parse(fXmlFile);
+		try {
+			File fXmlFile = new File(fileName);
+			DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+			DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
+			Document doc = dBuilder.parse(fXmlFile);
 
-        	NodeList nList = doc.getElementsByTagName("service");
+			NodeList nList = doc.getElementsByTagName("service");
 
-        	for (int i = 0; i < nList.getLength(); i++) {
-        		org.w3c.dom.Node nNode = nList.item(i);
-        		Element eElement = (Element) nNode;
+			for (int i = 0; i < nList.getLength(); i++) {
+				org.w3c.dom.Node nNode = nList.item(i);
+				Element eElement = (Element) nNode;
 
-        		String name = eElement.getAttribute("name");
+				String name = eElement.getAttribute("name");
 
-    		    qos[TIME] = Double.valueOf(eElement.getAttribute("Res"));
-    		    qos[COST] = Double.valueOf(eElement.getAttribute("Pri"));
-    		    qos[AVAILABILITY] = Double.valueOf(eElement.getAttribute("Ava"));
-    		    qos[RELIABILITY] = Double.valueOf(eElement.getAttribute("Rel"));
+				qos[TIME] = Double.valueOf(eElement.getAttribute("Res"));
+				qos[COST] = Double.valueOf(eElement.getAttribute("Pri"));
+				qos[AVAILABILITY] = Double.valueOf(eElement.getAttribute("Ava"));
+				qos[RELIABILITY] = Double.valueOf(eElement.getAttribute("Rel"));
 
 				// Get inputs
 				org.w3c.dom.Node inputNode = eElement.getElementsByTagName("inputs").item(0);
@@ -294,23 +451,23 @@ public class GraphPSO {
 					outputs.add(e.getAttribute("name"));
 				}
 
-                Node ws = new Node(name, qos, inputs, outputs);
-                serviceMap.put(name, ws);
-                inputs = new HashSet<String>();
-                outputs = new HashSet<String>();
-                qos = new double[4];
-        	}
-        }
-        catch(IOException ioe) {
-            System.out.println("Service file parsing failed...");
-        }
-        catch (ParserConfigurationException e) {
-            System.out.println("Service file parsing failed...");
+				Node ws = new Node(name, qos, inputs, outputs);
+				serviceMap.put(name, ws);
+				inputs = new HashSet<String>();
+				outputs = new HashSet<String>();
+				qos = new double[4];
+			}
 		}
-        catch (SAXException e) {
-            System.out.println("Service file parsing failed...");
+		catch(IOException ioe) {
+			System.out.println("Service file parsing failed...");
 		}
-    }
+		catch (ParserConfigurationException e) {
+			System.out.println("Service file parsing failed...");
+		}
+		catch (SAXException e) {
+			System.out.println("Service file parsing failed...");
+		}
+	}
 
 	/**
 	 * Parses the WSC task file with the given name, extracting input and
@@ -320,40 +477,40 @@ public class GraphPSO {
 	 */
 	private void parseWSCTaskFile(String fileName) {
 		try {
-	    	File fXmlFile = new File(fileName);
-	    	DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
-	    	DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
-	    	Document doc = dBuilder.parse(fXmlFile);
+			File fXmlFile = new File(fileName);
+			DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+			DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
+			Document doc = dBuilder.parse(fXmlFile);
 
-	    	org.w3c.dom.Node provided = doc.getElementsByTagName("provided").item(0);
-	    	NodeList providedList = ((Element) provided).getElementsByTagName("instance");
-	    	taskInput = new HashSet<String>();
-	    	for (int i = 0; i < providedList.getLength(); i++) {
+			org.w3c.dom.Node provided = doc.getElementsByTagName("provided").item(0);
+			NodeList providedList = ((Element) provided).getElementsByTagName("instance");
+			taskInput = new HashSet<String>();
+			for (int i = 0; i < providedList.getLength(); i++) {
 				org.w3c.dom.Node item = providedList.item(i);
 				Element e = (Element) item;
 				taskInput.add(e.getAttribute("name"));
-	    	}
+			}
 
-	    	org.w3c.dom.Node wanted = doc.getElementsByTagName("wanted").item(0);
-	    	NodeList wantedList = ((Element) wanted).getElementsByTagName("instance");
-	    	taskOutput = new HashSet<String>();
-	    	for (int i = 0; i < wantedList.getLength(); i++) {
+			org.w3c.dom.Node wanted = doc.getElementsByTagName("wanted").item(0);
+			NodeList wantedList = ((Element) wanted).getElementsByTagName("instance");
+			taskOutput = new HashSet<String>();
+			for (int i = 0; i < wantedList.getLength(); i++) {
 				org.w3c.dom.Node item = wantedList.item(i);
 				Element e = (Element) item;
 				taskOutput.add(e.getAttribute("name"));
-	    	}
+			}
 		}
 		catch (ParserConfigurationException e) {
-            System.out.println("Task file parsing failed...");
-            e.printStackTrace();
+			System.out.println("Task file parsing failed...");
+			e.printStackTrace();
 		}
 		catch (SAXException e) {
-            System.out.println("Task file parsing failed...");
-            e.printStackTrace();
+			System.out.println("Task file parsing failed...");
+			e.printStackTrace();
 		}
 		catch (IOException e) {
-            System.out.println("Task file parsing failed...");
-            e.printStackTrace();
+			System.out.println("Task file parsing failed...");
+			e.printStackTrace();
 		}
 	}
 
@@ -365,23 +522,23 @@ public class GraphPSO {
 	 */
 	private void parseWSCTaxonomyFile(String fileName) {
 		try {
-	    	File fXmlFile = new File(fileName);
-	    	DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
-	    	DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
-	    	Document doc = dBuilder.parse(fXmlFile);
-	    	NodeList taxonomyRoots = doc.getChildNodes();
+			File fXmlFile = new File(fileName);
+			DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+			DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
+			Document doc = dBuilder.parse(fXmlFile);
+			NodeList taxonomyRoots = doc.getChildNodes();
 
-	    	processTaxonomyChildren(null, taxonomyRoots);
+			processTaxonomyChildren(null, taxonomyRoots);
 		}
 
 		catch (ParserConfigurationException e) {
-            System.err.println("Taxonomy file parsing failed...");
+			System.err.println("Taxonomy file parsing failed...");
 		}
 		catch (SAXException e) {
-            System.err.println("Taxonomy file parsing failed...");
+			System.err.println("Taxonomy file parsing failed...");
 		}
 		catch (IOException e) {
-            System.err.println("Taxonomy file parsing failed...");
+			System.err.println("Taxonomy file parsing failed...");
 		}
 	}
 
@@ -396,16 +553,16 @@ public class GraphPSO {
 			for (int i = 0; i < nodes.getLength(); i++) {
 				org.w3c.dom.Node ch = nodes.item(i);
 
-			if (!(ch instanceof Text)) {
-				Element currNode = (Element) nodes.item(i);
-				String value = currNode.getAttribute("name");
+				if (!(ch instanceof Text)) {
+					Element currNode = (Element) nodes.item(i);
+					String value = currNode.getAttribute("name");
 					TaxonomyNode taxNode = taxonomyMap.get( value );
 					if (taxNode == null) {
-					    taxNode = new TaxonomyNode(value);
-					    taxonomyMap.put( value, taxNode );
+						taxNode = new TaxonomyNode(value);
+						taxonomyMap.put( value, taxNode );
 					}
 					if (parent != null) {
-					    taxNode.parents.add(parent);
+						taxNode.parents.add(parent);
 						parent.children.add(taxNode);
 					}
 
@@ -418,8 +575,8 @@ public class GraphPSO {
 
 	//==========================================================================================================
 	//
-    //                                              TAXONOMY METHODS
-    //
+	//                                              TAXONOMY METHODS
+	//
 	//==========================================================================================================
 
 	/**
@@ -434,7 +591,7 @@ public class GraphPSO {
 
 	private void addServiceToTaxonomyTree(Node s) {
 		// Populate outputs
-	    Set<TaxonomyNode> seenConceptsOutput = new HashSet<TaxonomyNode>();
+		Set<TaxonomyNode> seenConceptsOutput = new HashSet<TaxonomyNode>();
 		for (String outputVal : s.getOutputs()) {
 			TaxonomyNode n = taxonomyMap.get(outputVal);
 			s.getTaxonomyOutputs().add(n);
@@ -444,15 +601,15 @@ public class GraphPSO {
 			queue.add( n );
 
 			while (!queue.isEmpty()) {
-			    TaxonomyNode current = queue.poll();
-		        seenConceptsOutput.add( current );
-		        current.servicesWithOutput.add(s);
-		        for (TaxonomyNode parent : current.parents) {
-		            if (!seenConceptsOutput.contains( parent )) {
-		                queue.add(parent);
-		                seenConceptsOutput.add(parent);
-		            }
-		        }
+				TaxonomyNode current = queue.poll();
+				seenConceptsOutput.add( current );
+				current.servicesWithOutput.add(s);
+				for (TaxonomyNode parent : current.parents) {
+					if (!seenConceptsOutput.contains( parent )) {
+						queue.add(parent);
+						seenConceptsOutput.add(parent);
+					}
+				}
 			}
 		}
 		// Populate inputs
@@ -468,22 +625,22 @@ public class GraphPSO {
 				TaxonomyNode current = queue.poll();
 				seenConceptsInput.add( current );
 
-			    Set<String> inputs = current.servicesWithInput.get(s);
-			    if (inputs == null) {
-			    	inputs = new HashSet<String>();
-			    	inputs.add(inputVal);
-			    	current.servicesWithInput.put(s, inputs);
-			    }
-			    else {
-			    	inputs.add(inputVal);
-			    }
+				Set<String> inputs = current.servicesWithInput.get(s);
+				if (inputs == null) {
+					inputs = new HashSet<String>();
+					inputs.add(inputVal);
+					current.servicesWithInput.put(s, inputs);
+				}
+				else {
+					inputs.add(inputVal);
+				}
 
-			    for (TaxonomyNode child : current.children) {
-			        if (!seenConceptsInput.contains( child )) {
-			            queue.add(child);
-			            seenConceptsInput.add( child );
-			        }
-			    }
+				for (TaxonomyNode child : current.children) {
+					if (!seenConceptsInput.contains( child )) {
+						queue.add(child);
+						seenConceptsInput.add( child );
+					}
+				}
 			}
 		}
 		return;
@@ -503,7 +660,7 @@ public class GraphPSO {
 
 		temp.clear();
 		for (String s : taskOutput)
-				temp.add(taxonomyMap.get(s).parents.get(0).value);
+			temp.add(taxonomyMap.get(s).parents.get(0).value);
 		taskOutput.clear();
 		taskOutput.addAll(temp);
 
@@ -526,8 +683,8 @@ public class GraphPSO {
 
 	//==========================================================================================================
 	//
-    //                                              GRAPH METHODS
-    //
+	//                                              GRAPH METHODS
+	//
 	//==========================================================================================================
 
 	private double normaliseAvailability(double availability) {
@@ -558,204 +715,206 @@ public class GraphPSO {
 			return (MAXIMUM_COST - cost)/(MAXIMUM_COST - MINIMUM_COST);
 	}
 
-	   public double calculateParticleFitness(Node end, List<List<Node>> layers, float[] weights) {
-	        // Order layers according to weight
-	        List<List<ListItem>> sortedLayers = produceSortedLayers(layers, weights);
+	public void calculateOverallQoS(Node end, List<List<Node>> layers, Particle particle) {
+		float[] weights = particle.dimensions;
+		// Order layers according to weight
+		List<List<ListItem>> sortedLayers = produceSortedLayers(layers, weights);
 
-	        Set<Node> solution = new HashSet<Node>();
+		Set<Node> solution = new HashSet<Node>();
 
-	        double cost = 0.0;
-	        double availability = 1.0;
-	        double reliability = 1.0;
+		double cost = 0.0;
+		double availability = 1.0;
+		double reliability = 1.0;
 
-	        // Populate inputs to satisfy with end node's inputs
-	        List<InputTimeLayerTrio> nextInputsToSatisfy = new ArrayList<InputTimeLayerTrio>();
-	        double t = end.getQos()[TIME];
-	        for (String input : end.getInputs()){
-	            nextInputsToSatisfy.add( new InputTimeLayerTrio(input, t, sortedLayers.size()) );
-	        }
+		// Populate inputs to satisfy with end node's inputs
+		List<InputTimeLayerTrio> nextInputsToSatisfy = new ArrayList<InputTimeLayerTrio>();
+		double t = end.getQos()[TIME];
+		for (String input : end.getInputs()){
+			nextInputsToSatisfy.add( new InputTimeLayerTrio(input, t, sortedLayers.size()) );
+		}
 
-	        // Fulfil inputs layer by layer
-	        for (int i = sortedLayers.size(); i > 0; i--) {
-	            // Filter out the inputs from this layer that need to fulfilled
-	            List<InputTimeLayerTrio> inputsToSatisfy = new ArrayList<InputTimeLayerTrio>();
-	            for (InputTimeLayerTrio p : nextInputsToSatisfy) {
-	               if (p.layer == i)
-	                   inputsToSatisfy.add( p );
-	            }
-	            nextInputsToSatisfy.removeAll( inputsToSatisfy );
+		// Fulfil inputs layer by layer
+		for (int i = sortedLayers.size(); i > 0; i--) {
+			// Filter out the inputs from this layer that need to fulfilled
+			List<InputTimeLayerTrio> inputsToSatisfy = new ArrayList<InputTimeLayerTrio>();
+			for (InputTimeLayerTrio p : nextInputsToSatisfy) {
+				if (p.layer == i)
+					inputsToSatisfy.add( p );
+			}
+			nextInputsToSatisfy.removeAll( inputsToSatisfy );
 
-	            // Create manager to merge lists for us
-	            SortedLayerManager manager = new SortedLayerManager(sortedLayers, i, random);
+			// Create manager to merge lists for us
+			SortedLayerManager manager = new SortedLayerManager(sortedLayers, i, random);
 
-	            while (!inputsToSatisfy.isEmpty()){
-	                NodeLayerPair nextNode = manager.getNextNode();
+			while (!inputsToSatisfy.isEmpty()){
+				NodeLayerPair nextNode = manager.getNextNode();
 
-	                // If all nodes have been attempted, inputs must be fulfilled with start node
-	                if (nextNode == null) {
-	                    nextInputsToSatisfy.addAll(inputsToSatisfy);
-	                    inputsToSatisfy.clear();
-	                }
-	                else {
-    	                Node n = serviceMap.get( nextNode.nodeName );
-    	                int nLayer = nextNode.layerNum;
+				// If all nodes have been attempted, inputs must be fulfilled with start node
+				if (nextNode == null) {
+					nextInputsToSatisfy.addAll(inputsToSatisfy);
+					inputsToSatisfy.clear();
+				}
+				else {
+					Node n = serviceMap.get( nextNode.nodeName );
+					int nLayer = nextNode.layerNum;
 
-    	                List<InputTimeLayerTrio> satisfied = getInputsSatisfied(inputsToSatisfy, n);
-    	                if (!satisfied.isEmpty()) {
-                            double[] qos = n.getQos();
-                            if (!solution.contains( n )) {
-                                solution.add(n);
-                                // Keep track of nodes for statistics
-                                addToCountMap(nodeCount, n.getName());
-                                cost += qos[COST];
-                                availability *= qos[AVAILABILITY];
-                                reliability *= qos[RELIABILITY];
-                            }
-                            t = qos[TIME];
-                            inputsToSatisfy.removeAll(satisfied);
+					List<InputTimeLayerTrio> satisfied = getInputsSatisfied(inputsToSatisfy, n);
+					if (!satisfied.isEmpty()) {
+						double[] qos = n.getQos();
+						if (!solution.contains( n )) {
+							solution.add(n);
+							// Keep track of nodes for statistics
+							addToCountMap(nodeCount, n.getName());
+							cost += qos[COST];
+							availability *= qos[AVAILABILITY];
+							reliability *= qos[RELIABILITY];
+						}
+						t = qos[TIME];
+						inputsToSatisfy.removeAll(satisfied);
 
-                            double highestT = findHighestTime(satisfied);
+						double highestT = findHighestTime(satisfied);
 
-                            for(String input : n.getInputs()) {
-                                nextInputsToSatisfy.add( new InputTimeLayerTrio(input, highestT + t, nLayer) );
-                            }
-                        }
-	                }
-	            }
-	        }
+						for(String input : n.getInputs()) {
+							nextInputsToSatisfy.add( new InputTimeLayerTrio(input, highestT + t, nLayer) );
+						}
+					}
+				}
+			}
+		}
 
-	        // Find the highest overall time
-	        double time = findHighestTime(nextInputsToSatisfy);
-
-	        double fitness = calculateFitness(cost, time, availability, reliability);
-
-	        return fitness;
-	    }
+		// Find the highest overall time
+		double time = findHighestTime(nextInputsToSatisfy);
+		
+		particle.availability = availability;
+		particle.reliability = reliability;
+		particle.time = time;
+		particle.cost = cost;
+	}
 
 	public double findHighestTime(List<InputTimeLayerTrio> satisfied) {
-	    double max = Double.MIN_VALUE;
+		double max = Double.MIN_VALUE;
 
-	    for (InputTimeLayerTrio p : satisfied) {
-	        if (p.time > max)
-	            max = p.time;
-	    }
+		for (InputTimeLayerTrio p : satisfied) {
+			if (p.time > max)
+				max = p.time;
+		}
 
-	    return max;
+		return max;
 	}
 
 	public double calculateFitness(double c, double t, double a, double r) {
-        a = normaliseAvailability(a);
-        r = normaliseReliability(r);
-        t = normaliseTime(t);
-        c = normaliseCost(c);
+		a = normaliseAvailability(a);
+		r = normaliseReliability(r);
+		t = normaliseTime(t);
+		c = normaliseCost(c);
 
-        return (W1 * a + W2 * r + W3 * t + W4 * c);
+		return (W1 * a + W2 * r + W3 * t + W4 * c);
 	}
 
 	public List<List<ListItem>> produceSortedLayers(List<List<Node>> layers, float[] weights) {
-	    List<List<ListItem>> sortedLayers = new ArrayList<List<ListItem>>();
-	    for (List<Node> layer : layers) {
-	        List<ListItem> sortedLayer = new ArrayList<ListItem>();
-	        for (Node n : layer) {
-	            sortedLayer.add( new ListItem(n.getName(), weights[serviceToIndexMap.get(n.getName())]) );
-	        }
-	        Collections.sort( sortedLayer );
-	        sortedLayers.add( sortedLayer );
-	    }
-	    return sortedLayers;
+		List<List<ListItem>> sortedLayers = new ArrayList<List<ListItem>>();
+		for (List<Node> layer : layers) {
+			List<ListItem> sortedLayer = new ArrayList<ListItem>();
+			for (Node n : layer) {
+				sortedLayer.add( new ListItem(n.getName(), weights[serviceToIndexMap.get(n.getName())]) );
+			}
+			Collections.sort( sortedLayer );
+			sortedLayers.add( sortedLayer );
+		}
+		return sortedLayers;
 	}
 
 	public List<InputTimeLayerTrio> getInputsSatisfied(List<InputTimeLayerTrio> inputsToSatisfy, Node n) {
-	    List<InputTimeLayerTrio> satisfied = new ArrayList<InputTimeLayerTrio>();
-	    for(InputTimeLayerTrio p : inputsToSatisfy) {
-            if (taxonomyMap.get(p.input).servicesWithOutput.contains( n ))
-                satisfied.add( p );
-        }
-	    return satisfied;
+		List<InputTimeLayerTrio> satisfied = new ArrayList<InputTimeLayerTrio>();
+		for(InputTimeLayerTrio p : inputsToSatisfy) {
+			if (taxonomyMap.get(p.input).servicesWithOutput.contains( n ))
+				satisfied.add( p );
+		}
+		return satisfied;
 	}
 
 	public List<InputNodeLayerTrio> getInputsSatisfiedGraphBuilding(List<InputNodeLayerTrio> inputsToSatisfy, Node n) {
-	    List<InputNodeLayerTrio> satisfied = new ArrayList<InputNodeLayerTrio>();
-	    for(InputNodeLayerTrio p : inputsToSatisfy) {
-            if (taxonomyMap.get(p.input).servicesWithOutput.contains( n ))
-                satisfied.add( p );
-        }
-	    return satisfied;
+		List<InputNodeLayerTrio> satisfied = new ArrayList<InputNodeLayerTrio>();
+		for(InputNodeLayerTrio p : inputsToSatisfy) {
+			if (taxonomyMap.get(p.input).servicesWithOutput.contains( n ))
+				satisfied.add( p );
+		}
+		return satisfied;
 	}
 
 	public void addToCountMap(Map<String,Integer> map, String item) {
-	    if (map.containsKey( item )) {
-	        map.put( item, map.get( item ) + 1 );
-	    }
-	    else {
-	        map.put( item, 1 );
-	    }
+		if (map.containsKey( item )) {
+			map.put( item, map.get( item ) + 1 );
+		}
+		else {
+			map.put( item, 1 );
+		}
 	}
 
 	public Graph createNewGraph(Node start, Node end, List<List<Node>> layers, float[] weights) {
-        // Order layers according to weight
-        List<List<ListItem>> sortedLayers = produceSortedLayers(layers, weights);
+		// Order layers according to weight
+		List<List<ListItem>> sortedLayers = produceSortedLayers(layers, weights);
 
-        Graph graph = new Graph();
-        graph.nodeMap.put(end.getName(), end);
+		Graph graph = new Graph();
+		graph.nodeMap.put(end.getName(), end);
 
-        // Populate inputs to satisfy with end node's inputs
-        List<InputNodeLayerTrio> nextInputsToSatisfy = new ArrayList<InputNodeLayerTrio>();
+		// Populate inputs to satisfy with end node's inputs
+		List<InputNodeLayerTrio> nextInputsToSatisfy = new ArrayList<InputNodeLayerTrio>();
 
-        for (String input : end.getInputs()){
-            nextInputsToSatisfy.add( new InputNodeLayerTrio(input, end.getName(), sortedLayers.size()) );
-        }
+		for (String input : end.getInputs()){
+			nextInputsToSatisfy.add( new InputNodeLayerTrio(input, end.getName(), sortedLayers.size()) );
+		}
 
-        // Fulfil inputs layer by layer
-        for (int i = sortedLayers.size(); i > 0; i--) {
-            // Filter out the inputs from this layer that need to fulfilled
-            List<InputNodeLayerTrio> inputsToSatisfy = new ArrayList<InputNodeLayerTrio>();
-            for (InputNodeLayerTrio p : nextInputsToSatisfy) {
-               if (p.layer == i)
-                   inputsToSatisfy.add( p );
-            }
-            nextInputsToSatisfy.removeAll( inputsToSatisfy );
+		// Fulfil inputs layer by layer
+		for (int i = sortedLayers.size(); i > 0; i--) {
+			// Filter out the inputs from this layer that need to fulfilled
+			List<InputNodeLayerTrio> inputsToSatisfy = new ArrayList<InputNodeLayerTrio>();
+			for (InputNodeLayerTrio p : nextInputsToSatisfy) {
+				if (p.layer == i)
+					inputsToSatisfy.add( p );
+			}
+			nextInputsToSatisfy.removeAll( inputsToSatisfy );
 
-            // Create manager to merge lists for us
-            SortedLayerManager manager = new SortedLayerManager(sortedLayers, i, random);
+			// Create manager to merge lists for us
+			SortedLayerManager manager = new SortedLayerManager(sortedLayers, i, random);
 
-            while (!inputsToSatisfy.isEmpty()){
-                NodeLayerPair nextNode = manager.getNextNode();
+			while (!inputsToSatisfy.isEmpty()){
+				NodeLayerPair nextNode = manager.getNextNode();
 
-                if (nextNode == null) {
-                    nextInputsToSatisfy.addAll( inputsToSatisfy );
-                    inputsToSatisfy.clear();
-                }
-                else {
-                    Node n = serviceMap.get( nextNode.nodeName ).clone();
-                    int nLayer = nextNode.layerNum;
+				if (nextNode == null) {
+					nextInputsToSatisfy.addAll( inputsToSatisfy );
+					inputsToSatisfy.clear();
+				}
+				else {
+					Node n = serviceMap.get( nextNode.nodeName ).clone();
+					int nLayer = nextNode.layerNum;
 
-                    List<InputNodeLayerTrio> satisfied = getInputsSatisfiedGraphBuilding(inputsToSatisfy, n);
+					List<InputNodeLayerTrio> satisfied = getInputsSatisfiedGraphBuilding(inputsToSatisfy, n);
 
-                    if (!satisfied.isEmpty()) {
-                        if (!graph.nodeMap.containsKey( n.getName() )) {
-                            graph.nodeMap.put(n.getName(), n);
-                        }
+					if (!satisfied.isEmpty()) {
+						if (!graph.nodeMap.containsKey( n.getName() )) {
+							graph.nodeMap.put(n.getName(), n);
+						}
 
-                        // Add edges
-                        createEdges(n, satisfied, graph);
-                        inputsToSatisfy.removeAll(satisfied);
+						// Add edges
+						createEdges(n, satisfied, graph);
+						inputsToSatisfy.removeAll(satisfied);
 
 
-                        for(String input : n.getInputs()) {
-                            nextInputsToSatisfy.add( new InputNodeLayerTrio(input, n.getName(), nLayer) );
-                        }
-                    }
-                }
-            }
-        }
+						for(String input : n.getInputs()) {
+							nextInputsToSatisfy.add( new InputNodeLayerTrio(input, n.getName(), nLayer) );
+						}
+					}
+				}
+			}
+		}
 
-        // Connect start node
-        graph.nodeMap.put(start.getName(), start);
-        createEdges(start, nextInputsToSatisfy, graph);
+		// Connect start node
+		graph.nodeMap.put(start.getName(), start);
+		createEdges(start, nextInputsToSatisfy, graph);
 
-        return graph;
-    }
+		return graph;
+	}
 
 	public void createEdges(Node origin, List<InputNodeLayerTrio> destinations, Graph graph) {
 		// Order inputs by destination
@@ -770,8 +929,8 @@ public class GraphPSO {
 			Node destination = graph.nodeMap.get(entry.getKey());
 			destination.getIncomingEdgeList().add(e);
 			e.setFromNode(origin);
-        	e.setToNode(destination);
-        	graph.edgeList.add(e);
+			e.setToNode(destination);
+			graph.edgeList.add(e);
 		}
 	}
 
@@ -786,8 +945,8 @@ public class GraphPSO {
 
 	//==========================================================================================================
 	//
-    //                                              AUXILIARY METHODS
-    //
+	//                                              AUXILIARY METHODS
+	//
 	//==========================================================================================================
 
 	/**
@@ -865,14 +1024,14 @@ public class GraphPSO {
 		return satisfied;
 	}
 
-    private static boolean isIntersection( Set<String> a, Set<String> b ) {
-        for ( String v1 : a ) {
-            if ( b.contains( v1 ) ) {
-                return true;
-            }
-        }
-        return false;
-    }
+	private static boolean isIntersection( Set<String> a, Set<String> b ) {
+		for ( String v1 : a ) {
+			if ( b.contains( v1 ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
 
 	private void calculateNormalisationBounds(Set<Node> services) {
 		for(Node service: services) {
@@ -910,15 +1069,19 @@ public class GraphPSO {
 
 	//==========================================================================================================
 	//
-    //                                              LOGGING METHODS
-    //
+	//                                              LOGGING METHODS
+	//
 	//==========================================================================================================
-
+	
 	public void writeLogs(String finalGraph) {
 		try {
 			FileWriter writer = new FileWriter(new File(logName));
-			for (int i = 0; i < fitness.size(); i++) {
-				writer.append(String.format("%d %d %f\n", i, time.get(i), fitness.get(i)));
+			for (int i = 0; i < bestFitnessSoFar.size(); i++) {
+				writer.append(String.format("%d %d %d %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f\n",
+						i, initTime.get(i), time.get(i), meanFitness.get(i), bestFitnessThisGen.get(i), bestFitnessSoFar.get(i),
+						meanAvailPerGen.get(i),   meanReliaPerGen.get(i),    meanTimePerGen.get(i),    meanCostPerGen.get(i),
+						bestAvailThisGen.get(i),  bestReliaThisGen.get(i),   bestTimeThisGen.get(i),   bestCostThisGen.get(i),
+						bestAvailSoFar.get(i),    bestReliaSoFar.get(i),     bestTimeSoFar.get(i),     bestCostSoFar.get(i)));
 			}
 			writer.append(finalGraph);
 			writer.close();

@@ -15,6 +15,10 @@ public class Particle {
 	public float[] dimensions = new float[GraphPSO.numDimensions];
 	public float[] velocity = new float[GraphPSO.numDimensions];
 	public double fitness = 0.0; // The higher, the fitter
+	public double availability;
+	public double reliability;
+	public double time;
+	public double cost;
 
 	// personal best values
 	public double bestFitness = Double.NEGATIVE_INFINITY;
@@ -23,6 +27,10 @@ public class Particle {
 	// global best values
 	public static double globalBestFitness = Double.NEGATIVE_INFINITY;
 	public static float[] globalBestDimensions = new float[GraphPSO.numDimensions];
+	public static double globalBestAvailability;
+	public static double globalBestReliability;
+	public static double globalBestTime;
+	public static double globalBestCost;
 
 	/**
 	 * Creates a particle with null dimensions.
