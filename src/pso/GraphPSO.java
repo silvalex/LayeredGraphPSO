@@ -322,7 +322,7 @@ public class GraphPSO {
 
 		return Particle.globalBestDimensions;
 	}
-	
+
 	public double calculateFitness(Particle p) {
 		double a = p.availability;
         double r = p.reliability;
@@ -784,7 +784,7 @@ public class GraphPSO {
 
 		// Find the highest overall time
 		double time = findHighestTime(nextInputsToSatisfy);
-		
+
 		particle.availability = availability;
 		particle.reliability = reliability;
 		particle.time = time;
@@ -1072,7 +1072,7 @@ public class GraphPSO {
 	//                                              LOGGING METHODS
 	//
 	//==========================================================================================================
-	
+
 	public void writeLogs(String finalGraph) {
 		try {
 			FileWriter writer = new FileWriter(new File(logName));
